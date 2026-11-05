@@ -1,85 +1,63 @@
 # Desktop Client Starter
 
-A Java Swing desktop application packaged with **JetBrains Runtime 17**, **jlink**, **jdeps** and **jpackage**. Conveyor is not used by this branch.
+Java Swing desktop application packaged with **JetBrains Runtime 21 JBRSDK**, **jdeps**, **jlink**, and **jpackage**. This branch uses an independent GitHub Actions workflow and does not use Conveyor.
 
-## Supported packages
+## Supported native packages
 
-| Platform | Runtime architecture | JBR version | Output |
-|---|---|---|---|
-| macOS Apple Silicon | arm64 | 17.0.14 (b1367.22) | DMG |
-| macOS Intel | x64 | 17.0.14 (b1367.22) | DMG |
-| Windows | x64 | 17.0.14 (b1367.22) | EXE installer |
-| Windows | x86 (32-bit) | 17.0.11 (b1312.2) | EXE installer |
+| Platform | JBR SDK architecture | Output |
+|---|---|---|
+| macOS Apple Silicon | osx-aarch64 | DMG |
+| macOS Intel | osx-x64 | DMG |
+| Windows 64-bit | windows-x64 | EXE installer |
 
-Each package contains a private, trimmed Java runtime. End users do not need to install Java.
+The workflow pins JetBrains Runtime **21.0.11 (b1163.125)**. Every package contains a private trimmed Java runtime; end users do not need to install Java.
 
-## Toolchain
+## Build pipeline
 
-- Java 17 source and bytecode target
-- JetBrains Runtime 17 JBRSDK
-- JBR 17.0.14 (b1367.22) for macOS and Windows x64
-- JBR 17.0.11 (b1312.2) Windows x86 JBRSDK for 32-bit Windows compatibility, including Windows 7 32-bit
-- Maven
-- jdeps to infer required Java modules
-- jlink to create a reduced runtime image
-- jpackage to create native installers
-- GitHub Actions native runners for each target platform
+1. Maven compiles the app and copies runtime dependency JARs.
+2. JBR 21 jdeps analyzes the application with --print-module-deps.
+3. Swing/AWT, EC cryptography, and Chinese/English locale modules are explicitly retained.
+4. JBR 21 jlink creates a reduced runtime using --strip-debug, --no-man-pages, --no-header-files, and --compress=2.
+5. JBR 21 jpackage creates macOS DMG or Windows EXE packages.
 
-The Windows 32-bit package uses the JetBrains Windows x86 JBRSDK archive. The workflow verifies its SHA-512 checksum and selects the extracted SDK by checking the actual Java architecture (os.arch and sun.arch.data.model), rather than trusting the archive filename. The packaging script also checks PE machine types for the JBR, jlink runtime, and app-image launcher before creating the EXE installer.
+The workflow verifies the downloaded SDK SHA-512 checksum and runtime architecture before packaging.
 
-## Build locally
+## Local build
 
-Install a JBRSDK 17 matching the target platform and WiX Toolset 3 on Windows.
+Install Maven, a matching platform-specific JBR 21 JBRSDK (including jmods), and WiX Toolset 3 on Windows.
 
 ```bash
 mvn --batch-mode clean package
 ```
 
-On macOS:
+macOS:
 
 ```bash
-scripts/package-macos.sh "$JAVA_HOME" 1.0.1 macos-aarch64
+scripts/package-macos-jbr21.sh "$JAVA_HOME" 1.0.1 macos-aarch64 aarch64
 ```
 
-On Windows PowerShell:
+For Intel macOS, use `macos-x64 x64` for the final two arguments.
+
+Windows PowerShell:
 
 ```powershell
-./scripts/package-windows.ps1 -JbrHome $env:JAVA_HOME -AppVersion 1.0.1 -Architecture windows-x64
+./scripts/package-windows-jbr21.ps1 -JbrHome $env:JAVA_HOME -AppVersion 1.0.1
 ```
 
-The scripts:
-1. Copy the application JAR and runtime dependency JARs into the jpackage input directory.
-2. Run jdeps --print-module-deps to identify statically referenced modules.
-3. Retain Swing/AWT, EC cryptography and Chinese/English locale data explicitly.
-4. Run jlink with compression, debug symbols, man pages and header files stripped.
-5. Build and verify a native app-image, then run jpackage to create a DMG (macOS) or EXE installer (Windows).
-
-The reduced runtime is written to target/jpackage-runtime; Windows app-images are written to target/jpackage-app-image; installers are written to target/dist.
+Packages are written to `target/dist`; the trimmed runtime is written to `target/jpackage-runtime`.
 
 ## GitHub Actions
 
-The JBR 17 Native Packages workflow runs on:
-- pushing a tag matching v*: build all four platform packages and publish them to a GitHub Release;
-- manual workflow_dispatch: build all four packages and upload them as workflow artifacts.
+Workflow: `.github/workflows/jbr21.yml`
 
-The workflow builds on native macOS Apple Silicon, macOS Intel and Windows runners. Windows x86 packaging runs the verified 32-bit JBRSDK on a Windows x64 runner under WOW64.
+- Runs on pushes to `jpackage-jbr21-macos-win64` and manual workflow_dispatch.
+- Builds on native macOS Apple Silicon, macOS Intel, and Windows x64 runners.
+- Uploads one artifact per platform, retained for 14 days.
+- Does not publish GitHub Releases or require tags.
 
-To publish a release, update the version in pom.xml, commit the change, then push a matching tag. For the current project version:
+## Signing
 
-```bash
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-## Code signing
-
-This workflow creates unsigned packages. For public distribution, configure Apple Developer ID signing and notarization for macOS, and an Authenticode certificate for Windows. Store all signing material in GitHub Actions Secrets; never commit private keys or certificates.
-
-## User data
-
-Application data is stored outside the installation directory:
-- macOS: ~/Library/Application Support/Desktop Client Starter
-- Windows: %LOCALAPPDATA%/Desktop Client Starter
+Packages are unsigned. Public distribution should add Apple Developer ID signing and notarization for macOS, and Authenticode signing for Windows. Keep credentials in GitHub Actions Secrets.
 
 ## License
 
