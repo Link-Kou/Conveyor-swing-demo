@@ -133,7 +133,7 @@ jobs:
           # Select the JBRSDK whose own java.exe reports the requested bitness.
           $expectedBits = if ("${{ matrix.id }}" -eq "windows-x86") { "32" } else { "64" }
           $expectedArch = if ($expectedBits -eq "32") { "x86" } else { "amd64" }
-          $matches = @()
+          $matchedHomes = @()
           $jlinks = Get-ChildItem -Path $extract -Filter jlink.exe -Recurse -File
           foreach ($candidate in $jlinks) {
             $candidateHome = Split-Path (Split-Path $candidate.FullName -Parent) -Parent
@@ -145,14 +145,14 @@ jobs:
             $archOk = $info -match "(?m)^\s*os\.arch\s*=\s*$expectedArch\s*$"
             $bitsOk = $info -match "(?m)^\s*sun\.arch\.data\.model\s*=\s*$expectedBits\s*$"
             if ($archOk -and $bitsOk) {
-              $matches += $candidateHome
+              $matchedHomes += $candidateHome
             }
           }
-          if ($matches.Count -ne 1) {
-            throw "Expected exactly one $expectedBits-bit JBRSDK ($expectedArch), found $($matches.Count). Candidates: $($matches -join '; ')"
+          if ($matchedHomes.Count -ne 1) {
+            throw "Expected exactly one $expectedBits-bit JBRSDK ($expectedArch), found $($matchedHomes.Count). Candidates: $($matchedHomes -join '; ')"
           }
 
-          $jbrHome = $matches[0]
+          $jbrHome = $matchedHomes[0]
           foreach ($tool in @("java.exe", "jdeps.exe", "jlink.exe", "jpackage.exe")) {
             if (-not (Test-Path (Join-Path $jbrHome "bin\$tool"))) {
               throw "Required JBRSDK tool missing: $tool in $jbrHome"
