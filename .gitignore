@@ -1,0 +1,11 @@
+/target/
+/.conveyor/
+/.idea/
+*.iml
+.DS_Store
+*.cer
+*.p12
+*.pfx
+*.pem
+*.key
+.env
