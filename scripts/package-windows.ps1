@@ -19,7 +19,7 @@ $Jlink = Join-Path $JbrHome "bin\jlink.exe"
 $Jpackage = Join-Path $JbrHome "bin\jpackage.exe"
 $Jmods = Join-Path $JbrHome "jmods"
 Write-Host "Analyzing application modules with JBR jdeps..."
-$DetectedModules = & $Jdeps --multi-release 17 --ignore-missing-deps --print-module-deps --class-path (Join-Path $InputDir "lib\*") (Join-Path $InputDir "desktop-client.jar")
+$DetectedModules = & $Jdeps --multi-release 17 --ignore-missing-deps --print-module-deps --class-path (Join-Path $InputDir "*") (Join-Path $InputDir "desktop-client.jar")
 if ($LASTEXITCODE -ne 0) { throw "jdeps failed with exit code $LASTEXITCODE" }
 $ModuleSet = @()
 $ModuleSet += ($DetectedModules -join "").Split(",")
