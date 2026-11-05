@@ -1,51 +1,164 @@
-name: Release Desktop Client
+name: JBR 17 Native Packages
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: desktop-client-release-${{ github.ref }}
+  group: jpackage-release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  JBR_VERSION: 17.0.14
+  JBR_BUILD: b1367.22
+
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: macos-aarch64
+            label: macOS Apple Silicon
+            runner: macos-15
+            platform: mac
+            jbr_arch: osx-aarch64
+            jbr_ext: tar.gz
+          - id: macos-x64
+            label: macOS Intel
+            runner: macos-15-intel
+            platform: mac
+            jbr_arch: osx-x64
+            jbr_ext: tar.gz
+          - id: windows-x64
+            label: Windows 64-bit
+            runner: windows-2022
+            platform: windows
+            jbr_arch: windows-x64
+            jbr_ext: zip
+          - id: windows-x86
+            label: Windows 32-bit
+            runner: windows-2022
+            platform: windows
+            jbr_arch: windows-x86
+            jbr_ext: tar.gz
+
+    runs-on: ${{ matrix.runner }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up JBR 17
+      - name: Set up Java 17 for Maven
         uses: actions/setup-java@v6
         with:
-          distribution: jetbrains
+          distribution: temurin
           java-version: '17'
-          java-package: jdk
           cache: maven
 
-      - name: Check tag matches Maven version
+      - name: Read application version
         shell: bash
         run: |
           VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
-          TAG="${GITHUB_REF_NAME#v}"
-          if [[ "$VERSION" != "$TAG" ]]; then
-            echo "Git tag ($TAG) must match pom.xml version ($VERSION)." >&2
-            exit 1
-          fi
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building version $VERSION for ${{ matrix.id }}"
 
-      - name: Verify Maven project
-        run: mvn --batch-mode --no-transfer-progress clean verify
+      - name: Download and extract target JBRSDK (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="jbrsdk-${JBR_VERSION}-${{ matrix.jbr_arch }}-${JBR_BUILD}.tar.gz"
+          URL="https://cache-redirector.jetbrains.com/intellij-jbr/$ARCHIVE"
+          mkdir -p "$RUNNER_TEMP/jbr-sdk"
+          curl --fail --location --retry 3 "$URL" -o "$RUNNER_TEMP/jbr-sdk.tar.gz"
+          tar -xzf "$RUNNER_TEMP/jbr-sdk.tar.gz" -C "$RUNNER_TEMP/jbr-sdk"
+          JLINK="$(find "$RUNNER_TEMP/jbr-sdk" -type f -path '*/bin/jlink' | head -n 1)"
+          test -n "$JLINK"
+          JBR_HOME="$(dirname "$(dirname "$JLINK")")"
+          echo "JBR_HOME=$JBR_HOME" >> "$GITHUB_ENV"
+          "$JBR_HOME/bin/java" -version
+          "$JBR_HOME/bin/jpackage" --version
 
-      - name: Package and publish macOS + Windows installers
-        uses: hydraulic-software/conveyor/actions/build@v22.3
-        env:
-          OAUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download and extract target JBRSDK (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $archive = "jbrsdk-$env:JBR_VERSION-${{ matrix.jbr_arch }}-$env:JBR_BUILD.${{ matrix.jbr_ext }}"
+          $url = "https://cache-redirector.jetbrains.com/intellij-jbr/$archive"
+          $extract = Join-Path $env:RUNNER_TEMP "jbr-sdk"
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          $download = Join-Path $env:RUNNER_TEMP $archive
+          Invoke-WebRequest -Uri $url -OutFile $download
+          if ($archive.EndsWith(".zip")) {
+            Expand-Archive -Path $download -DestinationPath $extract -Force
+          } else {
+            tar.exe -xzf $download -C $extract
+          }
+          $jlink = Get-ChildItem -Path $extract -Filter jlink.exe -Recurse -File | Select-Object -First 1
+          if (-not $jlink) { throw "Could not locate jlink.exe in JBRSDK archive: $url" }
+          $jbrHome = Split-Path (Split-Path $jlink.FullName -Parent) -Parent
+          "JBR_HOME=$jbrHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          & "$jbrHome\bin\java.exe" -version
+          & "$jbrHome\bin\jpackage.exe" --version
+
+      - name: Install WiX Toolset 3 for jpackage (Windows)
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          choco install wixtoolset --version=3.14.1 --yes --no-progress
+          $wixBin = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          if (-not (Test-Path $wixBin)) { throw "WiX Toolset 3.14 was not installed at $wixBin" }
+          $wixBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          if (-not (Test-Path (Join-Path $wixBin "candle.exe"))) { throw "candle.exe not found" }
+          if (-not (Test-Path (Join-Path $wixBin "light.exe"))) { throw "light.exe not found" }
+
+      - name: Build application JAR and runtime dependencies
+        run: mvn --batch-mode --no-transfer-progress clean package
+
+      - name: Build trimmed runtime and macOS DMG
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package-macos.sh
+          scripts/package-macos.sh "$JBR_HOME" "$APP_VERSION" "${{ matrix.id }}"
+
+      - name: Build trimmed runtime and Windows installer
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          ./scripts/package-windows.ps1 -JbrHome "$env:JBR_HOME" -AppVersion "$env:APP_VERSION" -Architecture "${{ matrix.id }}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
         with:
-          command: make copied-site
-          signing_key: ${{ secrets.SIGNING_KEY }}
-          agree_to_license: '1'
-          conveyor_version: '22.3'
+          name: package-${{ matrix.id }}
+          path: target/dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release-assets/*
