@@ -137,3 +137,10 @@ Do not write user data into the installation directory. `AppDirectories` resolve
 - Conveyor CI: <https://conveyor.hydraulic.dev/22.3.1/continuous-integration/>
 - JetBrains Runtime: <https://github.com/JetBrains/JetBrainsRuntime>
 - GitHub setup-java: <https://github.com/actions/setup-java>
+
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for the full license text.
+
+The Conveyor configuration declares the SPDX identifier `MIT` and this public repository URL in `app.license` and `app.vcs-url`, respectively. Conveyor uses these details to identify an eligible open-source project; the repository source must remain public and correspond to the application being packaged.
