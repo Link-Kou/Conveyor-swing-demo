@@ -50,6 +50,8 @@ jobs:
             platform: windows
             jbr_arch: windows-x86
             jbr_ext: tar.gz
+            jbr_version: 17.0.11
+            jbr_build: b1312.2
 
     runs-on: ${{ matrix.runner }}
 
@@ -96,7 +98,7 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $archive = "jbrsdk-$env:JBR_VERSION-${{ matrix.jbr_arch }}-$env:JBR_BUILD.${{ matrix.jbr_ext }}"
+          $archive = "jbrsdk-${{ matrix.jbr_version || env.JBR_VERSION }}-${{ matrix.jbr_arch }}-${{ matrix.jbr_build || env.JBR_BUILD }}.${{ matrix.jbr_ext }}"
           $url = "https://cache-redirector.jetbrains.com/intellij-jbr/$archive"
           $extract = Join-Path $env:RUNNER_TEMP "jbr-sdk"
           New-Item -ItemType Directory -Force -Path $extract | Out-Null
