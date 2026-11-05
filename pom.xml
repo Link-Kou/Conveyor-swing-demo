@@ -7,7 +7,7 @@
   <artifactId>desktop-client</artifactId>
   <version>1.0.1</version>
   <name>Desktop Client Starter</name>
-  <description>Java Swing application packaged with JetBrains Runtime 17 and jpackage</description>
+  <description>Java Swing application packaged with JetBrains Runtime 21, jdeps, jlink and jpackage</description>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
