@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+JBR_HOME="${1:?Usage: package-macos.sh JBR_HOME APP_VERSION PLATFORM}"
+APP_VERSION="${2:?Missing application version}"
+PLATFORM="${3:?Missing platform id}"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+INPUT_DIR="$ROOT_DIR/target/jpackage-input"
+RUNTIME_DIR="$ROOT_DIR/target/jpackage-runtime"
+DIST_DIR="$ROOT_DIR/target/dist"
+rm -rf "$INPUT_DIR" "$RUNTIME_DIR" "$DIST_DIR"
+mkdir -p "$INPUT_DIR/lib" "$DIST_DIR"
+cp "$ROOT_DIR/target/desktop-client.jar" "$INPUT_DIR/desktop-client.jar"
+if compgen -G "$ROOT_DIR/target/classpath-jars/*.jar" > /dev/null; then
+  cp "$ROOT_DIR"/target/classpath-jars/*.jar "$INPUT_DIR/lib/"
+fi
+echo "Analyzing application modules with JBR jdeps..."
+DETECTED_MODULES="$("$JBR_HOME/bin/jdeps" --multi-release 17 --ignore-missing-deps --print-module-deps --class-path "$INPUT_DIR/lib/*" "$INPUT_DIR/desktop-client.jar")"
+MODULES="$(printf '%s,%s' "$DETECTED_MODULES" 'java.desktop,jdk.crypto.ec,jdk.localedata' | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd, -)"
+echo "jlink modules: $MODULES"
+"$JBR_HOME/bin/jlink" --module-path "$JBR_HOME/jmods" --add-modules "$MODULES" --include-locales=zh,en --strip-debug --no-man-pages --no-header-files --compress=2 --output "$RUNTIME_DIR"
+echo "Trimmed runtime size:"
+du -sh "$RUNTIME_DIR"
+"$JBR_HOME/bin/jpackage" --type dmg --name "Desktop Client Starter" --app-version "$APP_VERSION" --vendor "Example Vendor" --description "A Java Swing desktop application" --input "$INPUT_DIR" --main-jar desktop-client.jar --main-class com.example.desktopclient.Main --class-path 'lib/*' --runtime-image "$RUNTIME_DIR" --dest "$DIST_DIR"
+echo "Created package for $PLATFORM:"
+ls -lh "$DIST_DIR"
