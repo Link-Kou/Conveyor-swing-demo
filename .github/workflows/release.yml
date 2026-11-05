@@ -2,6 +2,8 @@ name: JBR 17 Native Packages
 
 on:
   push:
+    branches:
+      - jpackage-jbr17-win32-win64-macos
     tags:
       - 'v*'
   workflow_dispatch:
@@ -67,6 +69,10 @@ jobs:
         run: |
           VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} must match pom.xml version $VERSION" >&2
+            exit 1
+          fi
           echo "Building version $VERSION for ${{ matrix.id }}"
 
       - name: Download and extract target JBRSDK (macOS)
