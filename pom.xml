@@ -5,12 +5,12 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.example</groupId>
   <artifactId>desktop-client</artifactId>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <name>Desktop Client Starter</name>
   <description>Java Swing + JBR + Conveyor starter application</description>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <maven.compiler.release>21</maven.compiler.release>
+    <maven.compiler.release>17</maven.compiler.release>
     <junit.version>5.11.4</junit.version>
   </properties>
   <dependencies>
@@ -28,7 +28,7 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <version>3.14.1</version>
-        <configuration><release>21</release></configuration>
+        <configuration><release>17</release></configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
