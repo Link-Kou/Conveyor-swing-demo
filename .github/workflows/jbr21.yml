@@ -1,0 +1,112 @@
+name: JBR 21 Native Packages
+on:
+  push:
+    branches: [jpackage-jbr21-macos-win64]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: jbr21-packages-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  JBR_VERSION: 21.0.11
+  JBR_BUILD: b1163.125
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: macos-aarch64, label: macOS Apple Silicon, runner: macos-15, os: osx, arch: aarch64, script: macos }
+          - { id: macos-x64, label: macOS Intel, runner: macos-15-intel, os: osx, arch: x64, script: macos }
+          - { id: windows-x64, label: Windows x64, runner: windows-2022, os: windows, arch: x64, script: windows }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 17 for Maven compilation
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Read application version
+        shell: bash
+        run: |
+          VERSION="$(mvn -q help:evaluate -Dexpression=project.version -DforceStdout)"
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building $VERSION for ${{ matrix.id }}"
+      - name: Download and verify JBR 21 SDK (macOS)
+        if: matrix.script == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="jbrsdk-${JBR_VERSION}-${{ matrix.os }}-${{ matrix.arch }}-${JBR_BUILD}.tar.gz"
+          BASE="https://cache-redirector.jetbrains.com/intellij-jbr"
+          mkdir -p "$RUNNER_TEMP/jbr-sdk"
+          curl -fL --retry 3 "$BASE/$ARCHIVE" -o "$RUNNER_TEMP/$ARCHIVE"
+          curl -fL --retry 3 "$BASE/$ARCHIVE.checksum" -o "$RUNNER_TEMP/$ARCHIVE.checksum"
+          EXPECTED="$(grep -Eo '[0-9a-fA-F]{128}' "$RUNNER_TEMP/$ARCHIVE.checksum" | head -n 1 | tr '[:lower:]' '[:upper:]')"
+          ACTUAL="$(shasum -a 512 "$RUNNER_TEMP/$ARCHIVE" | awk '{print toupper($1)}')"
+          test -n "$EXPECTED" && test "$ACTUAL" = "$EXPECTED"
+          tar -xzf "$RUNNER_TEMP/$ARCHIVE" -C "$RUNNER_TEMP/jbr-sdk"
+          JLINK="$(find "$RUNNER_TEMP/jbr-sdk" -type f -path '*/bin/jlink' -print -quit)"
+          test -n "$JLINK"
+          JBR_HOME="$(dirname "$(dirname "$JLINK")")"
+          echo "JBR_HOME=$JBR_HOME" >> "$GITHUB_ENV"
+          "$JBR_HOME/bin/java" -version
+          "$JBR_HOME/bin/java" -XshowSettings:properties -version 2>&1 | tee "$RUNNER_TEMP/jbr-info.txt"
+          if [ "${{ matrix.arch }}" = "aarch64" ]; then EXPECTED_ARCH=aarch64; else EXPECTED_ARCH=x86_64; fi
+          grep -Eq "os.arch = $EXPECTED_ARCH" "$RUNNER_TEMP/jbr-info.txt"
+      - name: Download and verify JBR 21 SDK (Windows)
+        if: matrix.script == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = "jbrsdk-$env:JBR_VERSION-windows-x64-$env:JBR_BUILD.tar.gz"
+          $base = "https://cache-redirector.jetbrains.com/intellij-jbr"
+          $download = Join-Path $env:RUNNER_TEMP $archive
+          $extract = Join-Path $env:RUNNER_TEMP "jbr-sdk"
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+          Invoke-WebRequest "$base/$archive" -OutFile $download
+          Invoke-WebRequest "$base/$archive.checksum" -OutFile "$download.checksum"
+          $checksum = [regex]::Match((Get-Content "$download.checksum" -Raw), '(?i)\b[0-9a-f]{128}\b')
+          if (-not $checksum.Success) { throw "JBR checksum is missing or invalid" }
+          if ((Get-FileHash $download -Algorithm SHA512).Hash -ne $checksum.Value.ToUpperInvariant()) { throw "JBR SDK SHA-512 mismatch" }
+          tar.exe -xzf $download -C $extract
+          if ($LASTEXITCODE -ne 0) { throw "JBR SDK extraction failed" }
+          $jlink = Get-ChildItem $extract -Filter jlink.exe -Recurse -File | Select-Object -First 1
+          if (-not $jlink) { throw "jlink.exe not found" }
+          $home = Split-Path (Split-Path $jlink.FullName -Parent) -Parent
+          $info = (& (Join-Path $home "bin\java.exe") -XshowSettings:properties -version 2>&1 | Out-String)
+          Write-Host $info
+          if ($info -notmatch '(?m)^\s*os\.arch\s*=\s*amd64\s*$' -or $info -notmatch '(?m)^\s*sun\.arch\.data\.model\s*=\s*64\s*$') { throw "JBR is not Windows x64" }
+          foreach ($tool in @("jdeps.exe","jlink.exe","jpackage.exe")) { if (-not (Test-Path (Join-Path $home "bin\$tool"))) { throw "Missing $tool" } }
+          if (-not (Test-Path (Join-Path $home "jmods"))) { throw "JBR SDK jmods missing" }
+          "JBR_HOME=$home" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install WiX Toolset 3
+        if: matrix.script == 'windows'
+        shell: pwsh
+        run: |
+          choco install wixtoolset --yes --no-progress
+          $wix = "C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          if (-not (Test-Path "$wix\candle.exe") -or -not (Test-Path "$wix\light.exe")) { throw "WiX Toolset 3 not found" }
+          $wix | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Build application
+        run: mvn --batch-mode --no-transfer-progress clean package
+      - name: Package macOS
+        if: matrix.script == 'macos'
+        shell: bash
+        run: |
+          chmod +x scripts/package-macos-jbr21.sh
+          scripts/package-macos-jbr21.sh "$JBR_HOME" "$APP_VERSION" "${{ matrix.id }}" "${{ matrix.arch }}"
+      - name: Package Windows x64
+        if: matrix.script == 'windows'
+        shell: pwsh
+        run: ./scripts/package-windows-jbr21.ps1 -JbrHome "$env:JBR_HOME" -AppVersion "$env:APP_VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-jbr21-${{ matrix.id }}
+          path: target/dist/*
+          if-no-files-found: error
+          retention-days: 14
