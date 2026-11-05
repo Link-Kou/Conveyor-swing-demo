@@ -77,13 +77,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "JBR SDK extraction failed" }
           $jlink = Get-ChildItem $extract -Filter jlink.exe -Recurse -File | Select-Object -First 1
           if (-not $jlink) { throw "jlink.exe not found" }
-          $home = Split-Path (Split-Path $jlink.FullName -Parent) -Parent
-          $info = (& (Join-Path $home "bin\java.exe") -XshowSettings:properties -version 2>&1 | Out-String)
+          $jbrHome = Split-Path (Split-Path $jlink.FullName -Parent) -Parent
+          $info = (& (Join-Path $jbrHome "bin\java.exe") -XshowSettings:properties -version 2>&1 | Out-String)
           Write-Host $info
           if ($info -notmatch '(?m)^\s*os\.arch\s*=\s*amd64\s*$' -or $info -notmatch '(?m)^\s*sun\.arch\.data\.model\s*=\s*64\s*$') { throw "JBR is not Windows x64" }
-          foreach ($tool in @("jdeps.exe","jlink.exe","jpackage.exe")) { if (-not (Test-Path (Join-Path $home "bin\$tool"))) { throw "Missing $tool" } }
-          if (-not (Test-Path (Join-Path $home "jmods"))) { throw "JBR SDK jmods missing" }
-          "JBR_HOME=$home" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+          foreach ($tool in @("jdeps.exe","jlink.exe","jpackage.exe")) { if (-not (Test-Path (Join-Path $jbrHome "bin\$tool"))) { throw "Missing $tool" } }
+          if (-not (Test-Path (Join-Path $jbrHome "jmods"))) { throw "JBR SDK jmods missing" }
+          "JBR_HOME=$jbrHome" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install WiX Toolset 3
         if: matrix.script == 'windows'
         shell: pwsh
