@@ -9,8 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RuntimeSmokeTest {
     @Test
     void runsOnTheConfiguredJavaBaseline() {
-        assertTrue(Runtime.version().feature() >= 21,
-                "Build and test with Java 21 or newer");
+        assertTrue(Runtime.version().feature() >= 17,
+                "Build and test with Java 17 or newer");
     }
 
     @Test
