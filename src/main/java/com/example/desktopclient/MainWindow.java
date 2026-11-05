@@ -36,7 +36,7 @@ public final class MainWindow extends JFrame {
         setSize(780, 540);
         setLocationRelativeTo(null);
 
-        JLabel heading = new JLabel("Java Swing + JBR + Conveyor", SwingConstants.CENTER);
+        JLabel heading = new JLabel("Java Swing + JBR + jpackage", SwingConstants.CENTER);
         heading.setFont(heading.getFont().deriveFont(Font.BOLD, 23f));
         heading.setBorder(BorderFactory.createEmptyBorder(24, 16, 8, 16));
 
@@ -87,7 +87,7 @@ public final class MainWindow extends JFrame {
                 + "User data directory: " + dataDirectory + "\n\n"
                 + "If this window was launched from an installed package, the bundled JBR is active.\n"
                 + "End users do not need to install Java separately.\n"
-                + "Conveyor handles update checks and installation for packaged builds.\n");
+                + "jpackage creates the native installer with a bundled, trimmed JBR runtime.\n");
         details.setCaretPosition(0);
         status.setText("Runtime information refreshed");
     }
