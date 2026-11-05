@@ -45,7 +45,7 @@ jobs:
             jbr_arch: windows-x64
             jbr_ext: zip
           - id: windows-x86
-            label: Windows 32-bit
+            label: Windows 32-bit (Windows 7 compatible JBR)
             runner: windows-2022
             platform: windows
             jbr_arch: windows-x86
@@ -94,27 +94,75 @@ jobs:
           "$JBR_HOME/bin/java" -version
           "$JBR_HOME/bin/jpackage" --version
 
-      - name: Download and extract target JBRSDK (Windows)
+      - name: Download, verify and select target JBRSDK (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $archive = "jbrsdk-${{ matrix.jbr_version || env.JBR_VERSION }}-${{ matrix.jbr_arch }}-${{ matrix.jbr_build || env.JBR_BUILD }}.${{ matrix.jbr_ext }}"
-          $url = "https://cache-redirector.jetbrains.com/intellij-jbr/$archive"
+          $ErrorActionPreference = "Stop"
+          $version = "${{ matrix.jbr_version || env.JBR_VERSION }}"
+          $build = "${{ matrix.jbr_build || env.JBR_BUILD }}"
+          $archive = "jbrsdk-$version-${{ matrix.jbr_arch }}-$build.${{ matrix.jbr_ext }}"
+          $baseUrl = "https://cache-redirector.jetbrains.com/intellij-jbr"
           $extract = Join-Path $env:RUNNER_TEMP "jbr-sdk"
           New-Item -ItemType Directory -Force -Path $extract | Out-Null
           $download = Join-Path $env:RUNNER_TEMP $archive
-          Invoke-WebRequest -Uri $url -OutFile $download
+
+          Invoke-WebRequest -Uri "$baseUrl/$archive" -OutFile $download
+          Invoke-WebRequest -Uri "$baseUrl/$archive.checksum" -OutFile "$download.checksum"
+
+          # Verify the exact SDK archive before extracting it.
+          $checksumText = Get-Content "$download.checksum" -Raw
+          $checksumMatch = [regex]::Match($checksumText, '(?i)\b[0-9a-f]{128}\b')
+          if (-not $checksumMatch.Success) {
+            throw "Could not parse SHA-512 checksum for $archive"
+          }
+          $actualHash = (Get-FileHash -Path $download -Algorithm SHA512).Hash
+          if ($actualHash -ne $checksumMatch.Value.ToUpperInvariant()) {
+            throw "SHA-512 mismatch for $archive. Expected $($checksumMatch.Value), got $actualHash"
+          }
+          Write-Host "Verified SHA-512: $actualHash"
+
           if ($archive.EndsWith(".zip")) {
             Expand-Archive -Path $download -DestinationPath $extract -Force
           } else {
             tar.exe -xzf $download -C $extract
+            if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $archive" }
           }
-          $jlink = Get-ChildItem -Path $extract -Filter jlink.exe -Recurse -File | Select-Object -First 1
-          if (-not $jlink) { throw "Could not locate jlink.exe in JBRSDK archive: $url" }
-          $jbrHome = Split-Path (Split-Path $jlink.FullName -Parent) -Parent
+
+          # Do not trust the archive name or filesystem enumeration order.
+          # Select the JBRSDK whose own java.exe reports the requested bitness.
+          $expectedBits = if ("${{ matrix.id }}" -eq "windows-x86") { "32" } else { "64" }
+          $expectedArch = if ($expectedBits -eq "32") { "x86" } else { "amd64" }
+          $matches = @()
+          $jlinks = Get-ChildItem -Path $extract -Filter jlink.exe -Recurse -File
+          foreach ($candidate in $jlinks) {
+            $candidateHome = Split-Path (Split-Path $candidate.FullName -Parent) -Parent
+            $javaExe = Join-Path $candidateHome "bin\java.exe"
+            if (-not (Test-Path $javaExe)) { continue }
+            $info = (& $javaExe -XshowSettings:properties -version 2>&1 | Out-String)
+            Write-Host "Candidate JBR: $candidateHome"
+            Write-Host $info
+            $archOk = $info -match "(?m)^\s*os\.arch\s*=\s*$expectedArch\s*$"
+            $bitsOk = $info -match "(?m)^\s*sun\.arch\.data\.model\s*=\s*$expectedBits\s*$"
+            if ($archOk -and $bitsOk) {
+              $matches += $candidateHome
+            }
+          }
+          if ($matches.Count -ne 1) {
+            throw "Expected exactly one $expectedBits-bit JBRSDK ($expectedArch), found $($matches.Count). Candidates: $($matches -join '; ')"
+          }
+
+          $jbrHome = $matches[0]
+          foreach ($tool in @("java.exe", "jdeps.exe", "jlink.exe", "jpackage.exe")) {
+            if (-not (Test-Path (Join-Path $jbrHome "bin\$tool"))) {
+              throw "Required JBRSDK tool missing: $tool in $jbrHome"
+            }
+          }
+          if (-not (Test-Path (Join-Path $jbrHome "jmods"))) {
+            throw "JBRSDK jmods directory missing: $jbrHome"
+          }
+          Write-Host "Selected JBR_HOME=$jbrHome"
           "JBR_HOME=$jbrHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          & "$jbrHome\bin\java.exe" -version
-          & "$jbrHome\bin\jpackage.exe" --version
 
       - name: Install WiX Toolset 3 for jpackage (Windows)
         if: matrix.platform == 'windows'
