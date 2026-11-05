@@ -18,6 +18,13 @@ $Jdeps = Join-Path $JbrHome "bin\jdeps.exe"
 $Jlink = Join-Path $JbrHome "bin\jlink.exe"
 $Jpackage = Join-Path $JbrHome "bin\jpackage.exe"
 $Jmods = Join-Path $JbrHome "jmods"
+$JavaInfo = & (Join-Path $JbrHome "bin\\java.exe") -XshowSettings:properties -version 2>&1 | Out-String
+if ($Architecture -eq "windows-x86" -and $JavaInfo -notmatch "os.arch\\s*=\\s*(x86|i[3-6]86)") {
+    throw "The Windows x86 package must use a 32-bit JBR. Detected Java properties: $JavaInfo"
+}
+if ($Architecture -eq "windows-x64" -and $JavaInfo -notmatch "os.arch\\s*=\\s*amd64") {
+    throw "The Windows x64 package must use a 64-bit JBR. Detected Java properties: $JavaInfo"
+}
 Write-Host "Analyzing application modules with JBR jdeps..."
 $DetectedModules = & $Jdeps --multi-release 17 --ignore-missing-deps --print-module-deps --class-path (Join-Path $InputDir "*") (Join-Path $InputDir "desktop-client.jar")
 if ($LASTEXITCODE -ne 0) { throw "jdeps failed with exit code $LASTEXITCODE" }
